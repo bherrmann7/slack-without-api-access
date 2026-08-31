@@ -33,10 +33,27 @@ the login. Used automatically when the saved credentials expire, and forced with
 Both paths are covered by the same tests and produce the same output, so you can fall back
 without surprises.
 
+## Please read this before using it
+
+This drives Slack with **your own user session**, which is not the same thing as an approved
+integration:
+
+- **It is outside Slack's Terms of Service.** Automating a user session is not a supported use
+  of the product, whatever the volume. Slack may rate-limit, or act on, traffic it identifies
+  this way. Personal, low-volume use is a different risk from wiring it into shared automation.
+- **Your workspace admin disabled the API for a reason.** This routes around a deliberate
+  policy decision. Whether that's fine or a firing offence depends on your organisation, and
+  it's on you to know which.
+- **Actions are indistinguishable from you doing them by hand,** because that's what they are.
+  There is no bot label and no audit trail saying a script did it.
+
+It was written for one person automating their own workflow on their own account. That is the
+use it is fit for.
+
 ## Install
 
 ```console
-git clone https://github.com/<you>/slack-without-api-access
+git clone https://github.com/bherrmann7/slack-without-api-access
 cd slack-without-api-access
 npm install
 npm link            # puts `slack-send` on your PATH
@@ -108,23 +125,6 @@ or set `SLACK_SEND_TEAM`. Your team id is in any Slack URL: `app.slack.com/clien
 
 `session.json` and `profile/` are as sensitive as your password. They are written owner-only;
 keep them that way, and don't copy them anywhere.
-
-## Please read this before using it
-
-This drives Slack with **your own user session**, which is not the same thing as an approved
-integration:
-
-- **It is outside Slack's Terms of Service.** Automating a user session is not a supported use
-  of the product, whatever the volume. Slack may rate-limit, or act on, traffic it identifies
-  this way. Personal, low-volume use is a different risk from wiring it into shared automation.
-- **Your workspace admin disabled the API for a reason.** This routes around a deliberate
-  policy decision. Whether that's fine or a firing offence depends on your organisation, and
-  it's on you to know which.
-- **Actions are indistinguishable from you doing them by hand,** because that's what they are.
-  There is no bot label and no audit trail saying a script did it.
-
-It was written for one person automating their own workflow on their own account. That is the
-use it is fit for.
 
 ## Limitations
 
