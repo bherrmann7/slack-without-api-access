@@ -396,7 +396,9 @@ async function apiPaged(method, params, key, want, opts) {
   const out = [];
   let cursor;
   for (let i = 0; i < 20; i++) {
-    const res = await apiCall(method, { ...params, limit: 200, cursor }, opts);
+    // A caller-supplied limit wins. Spreading params and then overwriting
+    // `limit` silently ignored it, which is a trap for the next caller.
+    const res = await apiCall(method, { limit: 200, ...params, cursor }, opts);
     if (!res.ok) die(`api ${method}: ${res.error || 'failed'}`);
     out.push(...(res[key] || []));
     cursor = res.response_metadata && res.response_metadata.next_cursor;
@@ -470,11 +472,28 @@ function loadConvCache() {
   try { return JSON.parse(fs.readFileSync(CONV_CACHE_FILE, 'utf8')); } catch (_) { return {}; }
 }
 
+// Write through a temp file and rename. The rename is atomic, so a reader
+// never sees a half-written cache — an interactive command and a scheduled
+// sweep can be running at the same time (the sweep lock only guards sweeps
+// against each other).
 function saveConvCache(cache) {
   ensureDirs();
+  const tmp = `${CONV_CACHE_FILE}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(CONV_CACHE_FILE, JSON.stringify(cache, null, 2) + '\n', { mode: 0o600 });
-  } catch (_) {}
+    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, CONV_CACHE_FILE);
+  } catch (_) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
+}
+
+// Set one entry without clobbering the rest. Reading the whole map, mutating a
+// copy, and writing it back lets a concurrent writer's entry be lost; re-reading
+// immediately before the write narrows that window to a single call.
+function putConvCache(key, entry) {
+  const cache = loadConvCache();
+  cache[key] = entry;
+  saveConvCache(cache);
 }
 
 function forgetConversation(to) {
@@ -518,9 +537,7 @@ async function resolveConversationCached(to, opts) {
     forgetConversation(to);
   }
   const conv = await resolveConversation(to, opts);
-  const cache = loadConvCache();
-  cache[norm(to)] = { id: conv.id, name: conv.name, user: conv.user || null, at: Date.now() };
-  saveConvCache(cache);
+  putConvCache(norm(to), { id: conv.id, name: conv.name, user: conv.user || null, at: Date.now() });
   return conv;
 }
 
@@ -1531,6 +1548,6 @@ module.exports = {
   slackTextToPlain, pickConversation, resolveConversation, historyViaApi,
   apiPaged, listViaApi, printMessages, messageText,
   resolveConversationCached, cachedConversation, forgetConversation,
-  loadConvCache, saveConvCache, historyByName,
+  loadConvCache, saveConvCache, putConvCache, historyByName,
   reactViaApi, deleteViaApi, sendViaApi, verifyConversation, deployInfo,
 };

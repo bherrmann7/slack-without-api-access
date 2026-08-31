@@ -297,6 +297,35 @@ test('cachedConversation preserves user, so DM verification can succeed', () => 
   }
 });
 
+test('apiPaged respects a caller-supplied limit instead of overriding it', async () => {
+  const f = fakeFetch({ ok: true, messages: [{ ts: '1' }] });
+  await m.apiPaged('conversations.history', { channel: 'C1', limit: 5 }, 'messages', 0,
+    { session: FAKE, fetchImpl: f });
+  assert.match(f.calls[0].opts.body, /(^|&)limit=5(&|$)/, 'caller limit must win');
+});
+
+test('apiPaged still defaults the page size when the caller gives none', async () => {
+  const f = fakeFetch({ ok: true, messages: [] });
+  await m.apiPaged('conversations.history', { channel: 'C1' }, 'messages', 0,
+    { session: FAKE, fetchImpl: f });
+  assert.match(f.calls[0].opts.body, /(^|&)limit=200(&|$)/);
+});
+
+test('putConvCache preserves entries written by someone else', () => {
+  // Two processes share this file — an interactive command and a scheduled job.
+  // Writing a whole map read earlier would drop the other writer's entry.
+  const before = m.loadConvCache();
+  try {
+    m.saveConvCache({ alpha: { id: 'C_A', at: Date.now() } });
+    m.putConvCache('beta', { id: 'C_B', at: Date.now() });
+    const after = m.loadConvCache();
+    assert.ok(after.alpha, 'pre-existing entry survived');
+    assert.strictEqual(after.beta.id, 'C_B');
+  } finally {
+    m.saveConvCache(before);
+  }
+});
+
 test('forgetConversation drops only the named entry', () => {
   const before = m.loadConvCache();
   try {

@@ -66,6 +66,32 @@ slack-send login    # opens a browser; sign in there
 Re-run `slack-send login` whenever the session expires. `slack-send status` tells you where you
 stand.
 
+### Releasing a copy for scheduled jobs
+
+If you run this from cron or a launch agent, don't point the job at your working
+copy — a half-finished edit becomes what runs, minutes later, unattended.
+`./install` publishes a snapshot instead:
+
+```console
+./install
+```
+
+It runs the tests, checks the syntax, and actually executes `send.js --help`
+(parsing is not running — a dangling reference passes a syntax check and dies at
+runtime). Only if all of that succeeds does it copy `send.js` to
+`~/.slack-send/deploy/` and write a `slack-send` wrapper into `~/bin` pointing
+there. It copies rather than symlinks, deliberately: a symlink would put the
+working tree back in the execution path.
+
+`slack-send status` then shows which edition is live:
+
+```
+deployed  : 55a930b239b1  2026-08-30 22:06:29  git d663c3e   <- what cron runs
+source    : 0680ab670455  AHEAD of deploy — run ./install
+```
+
+You don't need this for interactive use — `npm link` is enough.
+
 ## Commands
 
 | command | what it does |
@@ -152,6 +178,12 @@ real workspace.
 Pure helpers are exported at the bottom of `send.js` so tests can reach them, including a smoke
 test asserting every command and internal helper still resolves. A helper was once silently
 deleted by an edit and only surfaced on use; that test exists to catch it.
+
+**On those exports:** most exist for the tests and carry no stability promise — they can change
+in any release. The exception is the browser plumbing (`launch`, `gotoClient`, `isSignedIn`,
+`dismissBanners`, `openConversation`, `log`, `die`, `STATE_DIR`), exported so a separate tool can
+drive the same client without duplicating the selector layer. If you build on those, pin a
+version; if you build on anything else, expect it to move.
 
 ## License
 
