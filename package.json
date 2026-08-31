@@ -1,0 +1,31 @@
+{
+  "name": "slack-without-api-access",
+  "version": "1.0.0",
+  "description": "Operate Slack as yourself from the command line when your workspace has the API disabled — no app, no bot token.",
+  "type": "commonjs",
+  "license": "MIT",
+  "bin": {
+    "slack-send": "./send.js"
+  },
+  "files": [
+    "send.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "slack",
+    "cli",
+    "playwright",
+    "no-api-token",
+    "automation"
+  ],
+  "dependencies": {
+    "playwright": "^1.55.0"
+  },
+  "scripts": {
+    "test": "node --test test/unit.test.js"
+  }
+}
