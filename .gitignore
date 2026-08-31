@@ -6,3 +6,4 @@ node_modules/
 # package; kept out of the repo deliberately.
 pr-sweep.js
 test/pr-sweep.test.js
+PRIVATE-NOTES.md
