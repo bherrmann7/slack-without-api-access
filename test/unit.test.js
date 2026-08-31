@@ -459,7 +459,7 @@ test('internal helpers used by commands still exist', () => {
     'slackTextToPlain', 'pickConversation', 'resolveConversation', 'historyViaApi',
     'apiPaged', 'listViaApi', 'printMessages', 'messageText',
     'resolveConversationCached', 'cachedConversation', 'forgetConversation', 'historyByName',
-    'reactViaApi', 'deleteViaApi', 'sendViaApi', 'verifyConversation',
+    'reactViaApi', 'deleteViaApi', 'sendViaApi', 'verifyConversation', 'deployInfo',
   ]) {
     assert.strictEqual(typeof m[fn], 'function', `${fn} missing`);
   }

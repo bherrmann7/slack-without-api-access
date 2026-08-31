@@ -25,6 +25,8 @@ const SHOT_DIR = path.join(STATE_DIR, 'shots');
 const CONFIG_FILE = path.join(STATE_DIR, 'config.json');
 // Holds the harvested { token, d } pair — see the session/api section below.
 const SESSION_FILE = path.join(STATE_DIR, 'session.json');
+// The released edition cron runs — see ./install. Deliberately NOT this file.
+const DEPLOY_DIR = path.join(STATE_DIR, 'deploy');
 // name -> conversation id, so repeated runs do not re-list every channel and user.
 const CONV_CACHE_FILE = path.join(STATE_DIR, 'conv-cache.json');
 
@@ -237,6 +239,33 @@ function saveSession(session) {
   fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2) + '\n', { mode: 0o600 });
   // writeFileSync's mode is ignored when the file already exists.
   try { fs.chmodSync(SESSION_FILE, 0o600); } catch (_) {}
+}
+
+// What is deployed, and whether the working tree has moved on. The whole point
+// of ./install is that cron does not run the file you are editing, so `status`
+// has to say which edition is live or you are back to guessing from mtimes.
+function deployInfo() {
+  let meta = null;
+  try {
+    meta = JSON.parse(fs.readFileSync(path.join(DEPLOY_DIR, 'VERSION.json'), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+  let sourceHash = null;
+  try {
+    const crypto = require('crypto');
+    const buf = fs.readFileSync(meta.source);
+    sourceHash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12);
+  } catch (_) {}
+  // An unreadable source is NOT a match — it means the project moved or was
+  // deleted, and claiming "matches deploy" there would assert something this
+  // function just failed to check.
+  return {
+    ...meta,
+    sourceHash,
+    stale: !!(sourceHash && sourceHash !== meta.hash),
+    sourceMissing: !sourceHash,
+  };
 }
 
 function loadSession() {
@@ -624,6 +653,16 @@ async function cmdStatus() {
     console.log('ua        : ' + (await page.evaluate(() => navigator.userAgent)));
     console.log('config    : ' + CONFIG_FILE + (TEAM_ID ? ` (team=${TEAM_ID})` : ' (no team pinned)'));
     // Report the api pair by presence and age only — never the values.
+    const dep = deployInfo();
+    if (dep) {
+      console.log(`deployed  : ${dep.hash}  ${dep.deployedAt}${dep.git ? '  git ' + dep.git : ''}   <- what cron runs`);
+      const verdict = dep.sourceMissing
+        ? `source not readable at ${dep.source} — moved? re-run ./install there`
+        : dep.stale
+          ? 'AHEAD of deploy — run ./install'
+          : 'matches deploy';
+      console.log(`source    : ${dep.sourceHash || '(missing)'}  ${verdict}`);
+    }
     const sess = loadSession();
     if (!sess) {
       console.log('api creds : none — run `slack-send login` to harvest them');
@@ -1477,6 +1516,9 @@ if (require.main === module) {
 
 module.exports = {
   parseArgv, intOpt, emojiName, norm, rowSelector, COMMANDS, ExitError,
+  // The browser plumbing, exported so a separate tool can drive the same
+  // client without duplicating the selector layer or the login handling.
+  launch, gotoClient, isSignedIn, dismissBanners, log, die, STATE_DIR,
   // exported so a smoke test can assert the internal helpers still exist
   listMessages, ensureRendered, reactOne, deleteMessage, collectMessages,
   scrollToLatest, hoverMessagePane, openConversation,
@@ -1486,5 +1528,5 @@ module.exports = {
   apiPaged, listViaApi, printMessages, messageText,
   resolveConversationCached, cachedConversation, forgetConversation,
   loadConvCache, saveConvCache, historyByName,
-  reactViaApi, deleteViaApi, sendViaApi, verifyConversation,
+  reactViaApi, deleteViaApi, sendViaApi, verifyConversation, deployInfo,
 };
