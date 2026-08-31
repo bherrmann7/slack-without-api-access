@@ -542,8 +542,11 @@ async function historyByName(to, want, selfId, opts) {
 // Newest-first from Slack; returned oldest-first to match the DOM path's order.
 async function historyViaApi(channel, want, selfId, opts) {
   const msgs = await apiPaged('conversations.history', { channel }, 'messages', want, opts);
+  // Filter BEFORE slicing. Slicing first and filtering after silently returns
+  // fewer rows than asked for, and the DOM path does not behave that way —
+  // collectMessages accumulates filtered rows until it has `want`. The two
+  // paths have to agree on coverage or the --no-api fallback is not equivalent.
   return msgs
-    .slice(0, want)
     .map((m) => ({
       ts: m.ts,
       text: messageText(m),
@@ -553,6 +556,7 @@ async function historyViaApi(channel, want, selfId, opts) {
       reactionsMine: (m.reactions || []).filter((r) => (r.users || []).includes(selfId)).map((r) => r.name),
     }))
     .filter((m) => m.text || m.reactions.length)
+    .slice(0, want)
     .sort((a, b) => Number(a.ts) - Number(b.ts));
 }
 
