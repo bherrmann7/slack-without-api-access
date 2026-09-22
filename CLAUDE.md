@@ -9,7 +9,15 @@ the logged-in user**, on a workspace where the Slack API is disabled — no app,
 It gets in the way the user does: a real browser login, and then that same session's
 credentials.
 
-Everything lives in one file, `send.js`, plus `test/unit.test.js`.
+The tool itself is one file, `send.js`, with `test/unit.test.js` beside it. The repo also
+tracks `install`, a bash script that publishes a snapshot of the working tree as the
+"released" edition — see [Deploying](#deploying-install).
+
+Some untracked companions live in this directory and are gitignored **deliberately**:
+`pr-sweep.js`, `test/pr-sweep.test.js` and `PRIVATE-NOTES.md`. They are local-only tooling
+built on the exported browser plumbing, not part of the published package. Do not commit
+them, and do not delete them as strays. `install` gates on them when they are present and
+degrades quietly when they are not, so it still works on a public clone.
 
 ## Commands
 
@@ -19,9 +27,13 @@ node --test test/unit.test.js     # same thing
 node --test --test-name-pattern 'apiCall' test/unit.test.js   # single test
 node --check send.js              # syntax check — do this after every edit
 node send.js --help               # RUN it too: --check cannot see a ReferenceError
+./install                         # publish the working tree as the released edition
+
+node --test test/pr-sweep.test.js # local-only companion; NOT covered by npm test
 ```
 
-There is no build, no linter, and no CI.
+There is no build, no linter, and no CI. `install` is the closest thing: it runs the tests,
+`node --check` and `--help` as gates and refuses to publish if any of them fails.
 
 ## Running it
 
@@ -39,7 +51,34 @@ slack-send status                              # session + credential state
 `~/.slack-send/` holds `profile/` (the persistent Chromium profile — **this is the login
 session**, re-run `slack-send login` if it expires), `session.json` (the harvested API
 credential pair, mode 600), `conv-cache.json` (name → conversation id), `config.json` (pins
-`team`), and `shots/` (failure screenshots — read these when debugging).
+`team`), `deploy/` (the released edition — see below), and `shots/` (failure screenshots —
+read these when debugging).
+
+`SLACK_SEND_HOME` relocates the whole directory. Set it to a scratch path to exercise a
+command without touching the real login session or the live deploy.
+
+## Deploying (`./install`)
+
+**Editing `send.js` does not change what runs unattended.** A local cron entry point (not in
+this repo) invokes `slack-send` through `PATH`, which is a generated wrapper at
+`~/bin/slack-send` that execs the *copy* in `~/.slack-send/deploy/send.js`. Nothing reaches
+that copy until you run `./install`. That gap is the point: a half-saved edit or a branch
+switch must not reach a shared channel five minutes later.
+
+Consequences worth remembering:
+
+- **The copy is a real copy, never a symlink.** A symlink would put the working tree back in
+  the execution path and undo the whole arrangement.
+- **`slack-send <args>` runs the deployed edition.** To exercise uncommitted changes, run
+  `node send.js <args>` from this directory explicitly.
+- **`slack-send status` prints deployed vs. source hashes**, so "is my fix live?" is
+  answerable without guessing from mtimes. `deployInfo()` treats an unreadable source as
+  *not* a match rather than claiming one it failed to check.
+- **`install` writes via temp-file-and-rename**, so a sweep starting mid-install sees the old
+  file or the new one, never half of one.
+- **The wrapper is backed up once**, to `~/bin/slack-send.bak`. Copying on every run would
+  overwrite the original with a generated wrapper on the second install — a backup that
+  cannot restore anything.
 
 ## Architecture
 

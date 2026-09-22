@@ -9,6 +9,7 @@
   },
   "files": [
     "send.js",
+    "install",
     "README.md",
     "LICENSE"
   ],

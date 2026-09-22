@@ -30,8 +30,9 @@ browser, and everything afterwards is a plain HTTPS call. A round trip is ~200ms
 [Playwright](https://playwright.dev). Slower (~10s to boot Chromium) but it needs nothing but
 the login. Used automatically when the saved credentials expire, and forced with `--no-api`.
 
-Both paths are covered by the same tests and produce the same output, so you can fall back
-without surprises.
+Both paths print through the same formatter, so the output is identical either way and a
+fallback changes nothing you read. They are not equally tested: the HTTP path is covered by
+unit tests, the browser path is verified by hand (see [Development](#development)).
 
 ## Please read this before using it
 
@@ -83,6 +84,11 @@ runtime). Only if all of that succeeds does it copy `send.js` to
 there. It copies rather than symlinks, deliberately: a symlink would put the
 working tree back in the execution path.
 
+If `~/bin/slack-send` already exists, the first run keeps it at
+`~/bin/slack-send.bak`. Only the first — copying on every run would replace that
+backup with a generated wrapper, leaving something that looks like a backup but
+cannot restore anything.
+
 `slack-send status` then shows which edition is live:
 
 ```
@@ -124,7 +130,7 @@ outright instead of picked.
 --limit N    how many messages to read
 --full       do not truncate message text
 --no-api     skip the HTTP path and drive the browser
---force      skip the recipient guard
+--force      skip the recipient guard; also allows a message starting with "/"
 --quiet      suppress progress output on stderr
 ```
 

@@ -1539,10 +1539,10 @@ module.exports = {
   parseArgv, intOpt, emojiName, norm, rowSelector, COMMANDS, ExitError,
   // The browser plumbing, exported so a separate tool can drive the same
   // client without duplicating the selector layer or the login handling.
-  launch, gotoClient, isSignedIn, dismissBanners, log, die, STATE_DIR,
+  launch, gotoClient, isSignedIn, dismissBanners, openConversation, log, die, STATE_DIR,
   // exported so a smoke test can assert the internal helpers still exist
   listMessages, ensureRendered, reactOne, deleteMessage, collectMessages,
-  scrollToLatest, hoverMessagePane, openConversation,
+  scrollToLatest, hoverMessagePane,
   // session / api fast path
   apiCall, harvestSession, loadSession, saveSession, clearSession, isAuthError, AuthError,
   slackTextToPlain, pickConversation, resolveConversation, historyViaApi,
