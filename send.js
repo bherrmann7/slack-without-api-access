@@ -566,6 +566,7 @@ async function historyViaApi(channel, want, selfId, opts) {
   return msgs
     .map((m) => ({
       ts: m.ts,
+      user: m.user || m.bot_id || null,
       text: messageText(m),
       reactions: (m.reactions || []).map((r) => r.name),
       // The DOM path can only tell yours apart via aria-pressed; here the API
@@ -1175,12 +1176,27 @@ async function collectMessages(page, want) {
 }
 
 // One shared printer so the HTTP and DOM paths cannot drift in output format.
-function printMessages(rows, want, full) {
+// `names` (user id -> display name) adds the sender to each line. The DOM path has no
+// sender to give, so it passes none and prints text only.
+function printMessages(rows, want, full, names) {
   if (rows.length < want) log(`only ${rows.length} message(s) reachable`);
   for (const m of rows.slice(-want)) {
     const rx = m.reactions.length ? `  [${m.reactions.join(' ')}]` : '';
-    console.log(`${m.ts}  ${full ? m.text : m.text.slice(0, 120)}${rx}`);
+    const who = names ? `${names.get(m.user) || m.user || '?'}: ` : '';
+    console.log(`${m.ts}  ${who}${full ? m.text : m.text.slice(0, 120)}${rx}`);
   }
+}
+
+// Sender names for list. One users.info per distinct sender; an id that will not
+// resolve is printed as the id rather than guessed at.
+async function senderNames(rows) {
+  const names = new Map();
+  for (const id of new Set(rows.map((m) => m.user).filter(Boolean))) {
+    const r = await apiCall('users.info', { user: id }).catch(() => null);
+    const u = r && r.ok && r.user;
+    if (u) names.set(id, u.real_name || (u.profile && u.profile.display_name) || u.name || id);
+  }
+  return names;
 }
 
 async function listViaApi(to, want) {
@@ -1206,7 +1222,7 @@ async function cmdList(to, { limit, full, force, noApi }) {
   if (!noApi) {
     try {
       const rows = await listViaApi(to, want);
-      printMessages(rows, want, full);
+      printMessages(rows, want, full, await senderNames(rows));
       return;
     } catch (e) {
       if (!(e instanceof AuthError)) throw e;
@@ -1223,6 +1239,7 @@ async function cmdList(to, { limit, full, force, noApi }) {
     await page.waitForTimeout(1500);
 
     const all = await collectMessages(page, want);
+    log('browser path: senders are not shown');
     printMessages(all, want, full);
   } finally {
     await ctx.close();
@@ -1436,7 +1453,7 @@ function usage() {
   slack-send status                    report session state
   slack-send shot [recipient]          screenshot the client (read-only)
   slack-send list <recipient> [--limit N] [--full] [--no-api]
-                                       print the most recent N messages (default 20)
+                                       print the most recent N messages (default 20), each with its sender
   slack-send react <recipient> --ts <ts,ts> --emoji <name> [--remove] [--yes]
                                        add/remove an emoji reaction
   slack-send delete <recipient> --match "<text>" [--yes]
