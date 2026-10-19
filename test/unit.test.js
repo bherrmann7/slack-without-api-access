@@ -297,6 +297,34 @@ test('cachedConversation preserves user, so DM verification can succeed', () => 
   }
 });
 
+test('threadViaApi returns the thread parent first and drops empty rows', async () => {
+  const f = fakeFetch({ ok: true, messages: [
+    { ts: '2.0', user: 'U2', text: 'reply' },
+    { ts: '1.0', user: 'U1', text: 'parent', reply_count: 1 },
+    { ts: '3.0', user: 'U3', text: '' },
+  ] });
+  const rows = await m.threadViaApi('C1', '1.0', 'U1', { session: FAKE, fetchImpl: f });
+  assert.deepStrictEqual(rows.map((r) => r.ts), ['1.0', '2.0']);
+  assert.strictEqual(rows[0].replies, 1);
+  assert.match(f.calls[0].opts.body, /(^|&)ts=1\.0(&|$)/);
+});
+
+test('printMessages marks messages that start a thread', () => {
+  const lines = [];
+  const orig = console.log;
+  console.log = (l) => lines.push(l);
+  try {
+    m.printMessages([
+      { ts: '1.0', text: 'a', reactions: [], replies: 2 },
+      { ts: '2.0', text: 'b', reactions: [], replies: 1 },
+      { ts: '3.0', text: 'c', reactions: [] },
+    ], 3, false);
+  } finally {
+    console.log = orig;
+  }
+  assert.deepStrictEqual(lines, ['1.0  a  {2 replies}', '2.0  b  {1 reply}', '3.0  c']);
+});
+
 test('apiPaged respects a caller-supplied limit instead of overriding it', async () => {
   const f = fakeFetch({ ok: true, messages: [{ ts: '1' }] });
   await m.apiPaged('conversations.history', { channel: 'C1', limit: 5 }, 'messages', 0,
@@ -472,7 +500,7 @@ test('verifyConversation treats an api failure as unverified, not as fine', asyn
 // ---------------------------------------------------------------- smoke
 
 test('every subcommand resolves to a function', () => {
-  for (const name of ['login', 'status', 'shot', 'list', 'react', 'delete']) {
+  for (const name of ['login', 'status', 'shot', 'list', 'thread', 'react', 'delete']) {
     assert.strictEqual(typeof m.COMMANDS[name], 'function', `${name} missing`);
   }
 });
@@ -485,7 +513,7 @@ test('internal helpers used by commands still exist', () => {
     'collectMessages', 'scrollToLatest', 'hoverMessagePane',
     'openConversation',
     'apiCall', 'harvestSession', 'loadSession', 'saveSession', 'clearSession', 'isAuthError',
-    'slackTextToPlain', 'pickConversation', 'resolveConversation', 'historyViaApi',
+    'slackTextToPlain', 'pickConversation', 'resolveConversation', 'historyViaApi', 'threadViaApi', 'apiRow',
     'apiPaged', 'listViaApi', 'printMessages', 'messageText',
     'resolveConversationCached', 'cachedConversation', 'forgetConversation', 'historyByName',
     'reactViaApi', 'deleteViaApi', 'sendViaApi', 'verifyConversation', 'deployInfo',

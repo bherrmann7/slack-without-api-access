@@ -564,17 +564,34 @@ async function historyViaApi(channel, want, selfId, opts) {
   // collectMessages accumulates filtered rows until it has `want`. The two
   // paths have to agree on coverage or the --no-api fallback is not equivalent.
   return msgs
-    .map((m) => ({
-      ts: m.ts,
-      user: m.user || m.bot_id || null,
-      text: messageText(m),
-      reactions: (m.reactions || []).map((r) => r.name),
-      // The DOM path can only tell yours apart via aria-pressed; here the API
-      // hands us the reactor list outright.
-      reactionsMine: (m.reactions || []).filter((r) => (r.users || []).includes(selfId)).map((r) => r.name),
-    }))
+    .map((m) => apiRow(m, selfId))
     .filter((m) => m.text || m.reactions.length)
     .slice(0, want)
+    .sort((a, b) => Number(a.ts) - Number(b.ts));
+}
+
+// One API message -> the row shape every printer and command consumes.
+function apiRow(m, selfId) {
+  return {
+    ts: m.ts,
+    user: m.user || m.bot_id || null,
+    text: messageText(m),
+    reactions: (m.reactions || []).map((r) => r.name),
+    // The DOM path can only tell yours apart via aria-pressed; here the API
+    // hands us the reactor list outright.
+    reactionsMine: (m.reactions || []).filter((r) => (r.users || []).includes(selfId)).map((r) => r.name),
+    // Only a thread's parent carries reply_count; replies and the DOM path leave it 0.
+    replies: m.reply_count || 0,
+  };
+}
+
+// A thread oldest-first, parent first. conversations.replies already returns that
+// order; the sort only guards against a page boundary reordering it.
+async function threadViaApi(channel, ts, selfId, opts) {
+  const msgs = await apiPaged('conversations.replies', { channel, ts }, 'messages', 0, opts);
+  return msgs
+    .map((m) => apiRow(m, selfId))
+    .filter((m) => m.text || m.reactions.length)
     .sort((a, b) => Number(a.ts) - Number(b.ts));
 }
 
@@ -1183,7 +1200,8 @@ function printMessages(rows, want, full, names) {
   for (const m of rows.slice(-want)) {
     const rx = m.reactions.length ? `  [${m.reactions.join(' ')}]` : '';
     const who = names ? `${names.get(m.user) || m.user || '?'}: ` : '';
-    console.log(`${m.ts}  ${who}${full ? m.text : m.text.slice(0, 120)}${rx}`);
+    const th = m.replies ? `  {${m.replies} repl${m.replies === 1 ? 'y' : 'ies'}}` : '';
+    console.log(`${m.ts}  ${who}${full ? m.text : m.text.slice(0, 120)}${rx}${th}`);
   }
 }
 
@@ -1243,6 +1261,34 @@ async function cmdList(to, { limit, full, force, noApi }) {
     printMessages(all, want, full);
   } finally {
     await ctx.close();
+  }
+}
+
+// slack-send thread <recipient> [--ts <ts>] [--full] — print a thread, parent first.
+//
+// HTTP only: opening a thread pane in the browser is a second virtual scroller with
+// its own selectors, and nothing here needs it yet. Without --ts it reads the thread
+// of the newest message in the conversation, which is what "the last message and its
+// thread" asks for.
+async function cmdThread(to, { ts, full }) {
+  if (!to) die('usage: slack-send thread <recipient> [--ts <ts>] [--full]', 2);
+  if (ts && !/^\d+\.\d+$/.test(ts)) die(`--ts: not a message timestamp "${ts}"`, 2);
+  try {
+    const me = await apiCall('auth.test');
+    if (!me.ok) die(`auth.test: ${me.error}`);
+    const { conv, rows } = await historyByName(to, 1, me.user_id);
+    log(`reading ${conv.name} (${conv.id}) over http${conv.cached ? ' [cached id]' : ''}`);
+    const parent = ts || (rows[0] && rows[0].ts);
+    if (!parent) die(`no messages in ${conv.name}`);
+    const thread = await threadViaApi(conv.id, parent, me.user_id);
+    if (!thread.length) die(`no message ${parent} in ${conv.name}`);
+    // A reply's ts also works and returns the whole thread, so this is informational.
+    if (thread.length === 1) log('no replies');
+    // Replies carry no reply_count; clear the parent's so the marker does not repeat it.
+    printMessages(thread.map((m) => ({ ...m, replies: 0 })), thread.length, full, await senderNames(thread));
+  } catch (e) {
+    if (!(e instanceof AuthError)) throw e;
+    die(`${e.message}; thread has no browser fallback`, 3);
   }
 }
 
@@ -1454,6 +1500,9 @@ function usage() {
   slack-send shot [recipient]          screenshot the client (read-only)
   slack-send list <recipient> [--limit N] [--full] [--no-api]
                                        print the most recent N messages (default 20), each with its sender
+                                       and {N replies} on messages that start a thread
+  slack-send thread <recipient> [--ts <ts>] [--full]
+                                       print a thread, parent first (default: the newest message's)
   slack-send react <recipient> --ts <ts,ts> --emoji <name> [--remove] [--yes]
                                        add/remove an emoji reaction
   slack-send delete <recipient> --match "<text>" [--yes]
@@ -1485,6 +1534,10 @@ const COMMANDS = {
     full: a.bools.has('--full'),
     force: a.bools.has('--force'),
     noApi: a.bools.has('--no-api'),
+  }),
+  thread: (a) => cmdThread(a.positional[1], {
+    ts: a.opts['--ts'] || null,
+    full: a.bools.has('--full'),
   }),
   react: (a) => cmdReact(a.positional[1], {
     tsList: a.opts['--ts'] ? a.opts['--ts'].split(',').map((t) => t.trim()).filter(Boolean) : null,
@@ -1562,7 +1615,7 @@ module.exports = {
   scrollToLatest, hoverMessagePane,
   // session / api fast path
   apiCall, harvestSession, loadSession, saveSession, clearSession, isAuthError, AuthError,
-  slackTextToPlain, pickConversation, resolveConversation, historyViaApi,
+  slackTextToPlain, pickConversation, resolveConversation, historyViaApi, threadViaApi, apiRow,
   apiPaged, listViaApi, printMessages, messageText,
   resolveConversationCached, cachedConversation, forgetConversation,
   loadConvCache, saveConvCache, putConvCache, historyByName,
