@@ -630,15 +630,30 @@ async function deleteViaApi(channel, ts, opts) {
 // Newlines need no special handling here. The DOM path must send each one as
 // Shift+Enter or every line posts as a separate message; chat.postMessage takes
 // the text whole.
-async function sendViaApi(channel, text, opts) {
+async function sendViaApi(channel, text, opts, threadTs) {
   const res = await apiCall('chat.postMessage', {
     channel,
     text,
     // Post as the user, matching what the web client does.
     as_user: true,
+    // apiCall drops undefined params, so a top-level send carries no thread_ts.
+    thread_ts: threadTs,
   }, opts);
   if (res.ok) return { ok: true, ts: res.ts };
   return { ok: false, why: res.error || 'failed' };
+}
+
+// The ts to reply under, proved to exist in `channel` first. chat.postMessage does
+// not reliably reject a thread_ts it cannot find, and a reply that lands at the
+// top of a shared channel is the failure this guards. A reply's own ts is also
+// accepted: conversations.replies returns the thread's parent first, and that
+// parent's ts is what Slack threads on.
+async function resolveThreadTs(channel, ts, opts) {
+  const res = await apiCall('conversations.replies', { channel, ts, limit: 1 }, opts);
+  if (!res.ok) die(`--thread ${ts}: ${res.error === 'thread_not_found' ? 'no such message in this conversation' : res.error || 'failed'}. Nothing was sent.`);
+  const first = (res.messages || [])[0];
+  if (!first) die(`--thread ${ts}: no such message in this conversation. Nothing was sent.`);
+  return first.thread_ts || first.ts;
 }
 
 // ---------------------------------------------------------------- commands
@@ -803,7 +818,14 @@ async function openConversation(page, to, force) {
 }
 
 async function cmdSend(opts) {
-  const { to, text, force, dryRun, noApi } = opts;
+  const { to, text, force, dryRun, noApi, thread } = opts;
+
+  // Threads are HTTP only. The browser path has no thread pane driver, and
+  // falling back to it would post the reply at the top of the conversation.
+  if (thread) {
+    if (!/^\d+\.\d+$/.test(thread)) die(`--thread: not a message timestamp "${thread}"`, 2);
+    if (noApi) die('--thread needs the http path; it cannot be combined with --no-api.', 2);
+  }
 
   if (!noApi) {
     try {
@@ -811,17 +833,19 @@ async function cmdSend(opts) {
       // The id is unambiguous, but the user typed a name — say which one it
       // became BEFORE posting. This is the http path's answer to the DOM
       // path's two-stage recipient guard.
-      log(`sending to ${conv.name} (${conv.id})${conv.cached ? ' [cached id]' : ''}`);
+      const threadTs = thread ? await resolveThreadTs(conv.id, thread) : undefined;
+      log(`sending to ${conv.name} (${conv.id})${conv.cached ? ' [cached id]' : ''}${threadTs ? ` in thread ${threadTs}` : ''}`);
       if (dryRun) {
-        console.log(`dry run — not sent. Would post ${String(text).length} char(s) to ${conv.name}.`);
+        console.log(`dry run — not sent. Would post ${String(text).length} char(s) to ${conv.name}${threadTs ? ` in thread ${threadTs}` : ''}.`);
         return;
       }
-      const r = await sendViaApi(conv.id, text);
+      const r = await sendViaApi(conv.id, text, undefined, threadTs);
       if (!r.ok) die(`send failed: ${r.why}`);
       log(`sent (ts ${r.ts})`);
       return;
     } catch (e) {
       if (!(e instanceof AuthError)) throw e;
+      if (thread) die(`${e.message}; --thread has no browser fallback. Nothing was sent.`, 3);
       log(`${e.message}; falling back to the browser path`);
     }
   }
@@ -1441,7 +1465,7 @@ async function cmdDelete(to, { match, tsList, yes, force, noApi, limit }) {
 // can be mistaken for the recipient — `delete --match "x" bob` resolved the
 // recipient to "x". Consuming values here is what keeps positionals honest.
 const VALUE_FLAGS = new Set([
-  '--match', '--ts', '--emoji', '--limit',
+  '--match', '--ts', '--emoji', '--limit', '--thread',
 ]);
 
 function parseArgv(argv) {
@@ -1495,6 +1519,8 @@ function usage() {
   console.error(`usage:
   slack-send <recipient> "<message>"   send a message (headless)
   slack-send <recipient>               read the message from stdin
+  slack-send <recipient> --thread <ts> "<message>"
+                                       reply in the thread of message <ts> (http only)
   slack-send login                     one-time interactive sign-in
   slack-send status                    report session state
   slack-send shot [recipient]          screenshot the client (read-only)
@@ -1590,6 +1616,7 @@ async function main() {
     force: a.bools.has('--force'),
     dryRun: a.bools.has('--dry-run'),
     noApi: a.bools.has('--no-api'),
+    thread: a.opts['--thread'] || null,
   });
 }
 
@@ -1619,5 +1646,5 @@ module.exports = {
   apiPaged, listViaApi, printMessages, messageText,
   resolveConversationCached, cachedConversation, forgetConversation,
   loadConvCache, saveConvCache, putConvCache, historyByName,
-  reactViaApi, deleteViaApi, sendViaApi, verifyConversation, deployInfo,
+  reactViaApi, deleteViaApi, sendViaApi, resolveThreadTs, verifyConversation, deployInfo,
 };

@@ -325,6 +325,33 @@ test('printMessages marks messages that start a thread', () => {
   assert.deepStrictEqual(lines, ['1.0  a  {2 replies}', '2.0  b  {1 reply}', '3.0  c']);
 });
 
+test('sendViaApi sends thread_ts only for a thread reply', async () => {
+  const f = fakeFetch({ ok: true, ts: '9.9' });
+  await m.sendViaApi('C1', 'hi', { session: FAKE, fetchImpl: f }, '1.0');
+  assert.match(f.calls[0].opts.body, /(^|&)thread_ts=1\.0(&|$)/);
+  const g = fakeFetch({ ok: true, ts: '9.9' });
+  await m.sendViaApi('C1', 'hi', { session: FAKE, fetchImpl: g });
+  assert.doesNotMatch(g.calls[0].opts.body, /thread_ts=/, 'a top-level send must not carry thread_ts');
+});
+
+test('resolveThreadTs threads on the parent when given a reply ts', async () => {
+  const f = fakeFetch({ ok: true, messages: [{ ts: '2.0', thread_ts: '1.0' }] });
+  assert.strictEqual(await m.resolveThreadTs('C1', '2.0', { session: FAKE, fetchImpl: f }), '1.0');
+  const g = fakeFetch({ ok: true, messages: [{ ts: '1.0' }] });
+  assert.strictEqual(await m.resolveThreadTs('C1', '1.0', { session: FAKE, fetchImpl: g }), '1.0');
+});
+
+test('resolveThreadTs refuses a message that is not in the conversation', async () => {
+  const f = fakeFetch({ ok: false, error: 'thread_not_found' });
+  await assert.rejects(m.resolveThreadTs('C1', '1.0', { session: FAKE, fetchImpl: f }), m.ExitError);
+});
+
+test('parseArgv consumes the --thread value', () => {
+  const a = m.parseArgv(['bob', '--thread', '1.0', 'hello']);
+  assert.strictEqual(a.opts['--thread'], '1.0');
+  assert.deepStrictEqual(a.positional, ['bob', 'hello']);
+});
+
 test('apiPaged respects a caller-supplied limit instead of overriding it', async () => {
   const f = fakeFetch({ ok: true, messages: [{ ts: '1' }] });
   await m.apiPaged('conversations.history', { channel: 'C1', limit: 5 }, 'messages', 0,
@@ -516,7 +543,7 @@ test('internal helpers used by commands still exist', () => {
     'slackTextToPlain', 'pickConversation', 'resolveConversation', 'historyViaApi', 'threadViaApi', 'apiRow',
     'apiPaged', 'listViaApi', 'printMessages', 'messageText',
     'resolveConversationCached', 'cachedConversation', 'forgetConversation', 'historyByName',
-    'reactViaApi', 'deleteViaApi', 'sendViaApi', 'verifyConversation', 'deployInfo',
+    'reactViaApi', 'deleteViaApi', 'sendViaApi', 'resolveThreadTs', 'verifyConversation', 'deployInfo',
   ]) {
     assert.strictEqual(typeof m[fn], 'function', `${fn} missing`);
   }
